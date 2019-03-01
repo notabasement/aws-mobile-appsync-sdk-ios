@@ -18,15 +18,15 @@ protocol NetworkReachabilityProvidingFactory {
 protocol NetworkReachabilityProviding: class {
     /// If `true`, device can attempt to reach the host using a cellular connection (WAN). If `false`, host is only considered
     /// reachable if it can be accessed via WiFi
-    var allowsCellularConnection: Bool { get set }
+    var reachableOnWWAN: Bool { get set }
 
-    var connection: Reachability.Connection { get }
+    var connection: NetworkStatus { get }
 
     /// The notification center on which "reachability changed" events are being posted
-    var notificationCenter: NotificationCenter { get set }
+    var notificationCenter: NotificationCenter { get }
 
     /// Starts notifications for reachability changes
-    func startNotifier() throws
+    func startNotifier() -> Bool
 
     /// Pauses notifications for reachability changes
     func stopNotifier()
@@ -94,10 +94,7 @@ class NetworkReachabilityNotifier {
                                                selector: #selector(respondToReachabilityChange),
                                                name: .reachabilityChanged,
                                                object: nil)
-        do {
-            try reachability?.startNotifier()
-        } catch {
-        }
+        _ = reachability?.startNotifier()
 
         // Add listener for KSReachability's notification
         NotificationCenter.default.addObserver(
@@ -119,11 +116,11 @@ class NetworkReachabilityNotifier {
         }
 
         switch reachability.connection {
-        case .none:
+        case .NotReachable:
             return false
-        case .wifi:
+        case .ReachableViaWiFi:
             return true
-        case .cellular:
+        case .ReachableViaWWAN:
             return allowsCellularAccess
         }
     }
@@ -159,11 +156,11 @@ class NetworkReachabilityNotifier {
 
         let isReachable: Bool
         switch reachability.connection {
-        case .wifi:
+        case .ReachableViaWiFi:
             isReachable = true
-        case .cellular:
+        case .ReachableViaWWAN:
             isReachable = allowsCellularAccess
-        case .none:
+        case .NotReachable:
             isReachable = false
         }
 
@@ -185,4 +182,13 @@ extension Reachability: NetworkReachabilityProvidingFactory {
     }
 }
 
-extension Reachability: NetworkReachabilityProviding { }
+extension Reachability: NetworkReachabilityProviding {
+
+    var connection: NetworkStatus {
+        return currentReachabilityStatus()
+    }
+    
+    var notificationCenter: NotificationCenter {
+        return NotificationCenter.default
+    }
+}

@@ -24,11 +24,11 @@ struct MockReachabilityProvidingFactory: NetworkReachabilityProvidingFactory {
 
 /// The instance class vended by ReachabilityProvidingTestFactory
 class MockReachabilityProviding: NetworkReachabilityProviding {
+    
+    var reachableOnWWAN = false
+    var notificationCenter: NotificationCenter = NotificationCenter.default
 
-    var allowsCellularConnection = false
-    var notificationCenter = NotificationCenter.default
-
-    var connection = Reachability.Connection.wifi {
+    var connection = NetworkStatus.ReachableViaWiFi {
         didSet {
             guard isNotifierStarted else {
                 return
@@ -38,6 +38,7 @@ class MockReachabilityProviding: NetworkReachabilityProviding {
                 guard let self = self else {
                     return
                 }
+
                 self.notificationCenter.post(name: .reachabilityChanged, object: self)
             }
         }
@@ -45,8 +46,9 @@ class MockReachabilityProviding: NetworkReachabilityProviding {
 
     private var isNotifierStarted = false
 
-    func startNotifier() throws {
+    func startNotifier() -> Bool {
         isNotifierStarted = true
+        return true
     }
 
     func stopNotifier() {
