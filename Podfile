@@ -13,6 +13,7 @@ target 'AWSAppSyncTestCommon' do
   pod 'AWSCore', '~> 2.9.0'
   pod 'AWSS3', '~> 2.9.0'
   pod 'Reachability'
+
 end
 
 target 'AWSAppSyncUnitTests' do

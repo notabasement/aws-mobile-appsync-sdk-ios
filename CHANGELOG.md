@@ -2,6 +2,53 @@
 
 The AWS AppSync SDK for iOS enables you to access your AWS AppSync backend and perform operations like `Queries`, `Mutations` and `Subscriptions`. The SDK also includes support for offline operations.
 
+## 2.10.4
+
+### New Features
+
+- The AppSyncClient now supports specifying retry strategy using the `retryStrategy` parameter in `AWSAppSyncClientConfiguration`. You can choose between `aggressive` and `exponential`(default selection).
+
+### Bug Fixes
+
+- Mark `uniqueIdentifier` field in `AWSSubscriptionWatcher` as public which was incorrectly marked private in previous version.
+
+## 2.10.3
+
+### New Features
+
+- The AppSyncClient's `subscribe` method now accepts an optional `statusChangeHandler`. If provided, then the `AWSAppSyncSubscriptionWatcher`
+  returned by the `subscribe` method will invoke that method when it is notified of changes to the state of the underlying MQTT client.
+  `AWSAppSyncSubscriptionWatcherStatus` for a description of the statuses and their progression. Thanks @fans3210, @shannon-hager-skookum, and @achager for
+  contributing your thoughts to the original request ([Issue #42](https://github.com/awslabs/aws-mobile-appsync-sdk-ios/issues/42)) and to
+  @MarioBajr for contributing the original implementation on [PR #75](https://github.com/awslabs/aws-mobile-appsync-sdk-ios/pull/75).
+- Added a `queuedMutationCount` property to AppSyncClient ([Issue #192](https://github.com/awslabs/aws-mobile-appsync-sdk-ios/issues/192))
+
+### Bug fixes
+
+- Fixed incorrect AWSCore dependency version in podspec ([Issue #190](https://github.com/awslabs/aws-mobile-appsync-sdk-ios/issues/190))
+- Fixed data races in AppSyncMQTTClient that were causing crashes ([Issue #184](https://github.com/awslabs/aws-mobile-appsync-sdk-ios/issues/184))
+
+### Misc. Updates
+
+- Added `AWSAppSyncClientLogFormatter` utility class. Developers who want to use it can add it to the appropriate logger. For example, a configuration like:
+    ```swift
+    AWSDDLog.sharedInstance.logLevel = .verbose
+    AWSDDTTYLogger.sharedInstance.logFormatter = AWSAppSyncClientLogFormatter()
+    AWSDDLog.sharedInstance.add(AWSDDTTYLogger.sharedInstance)
+    ```
+  would output log messages like:
+    ```
+    2019-03-04 07:21:32.131-0800 [I AWSAppSyncClient.init(appSyncConfig:reachabilityFactory:), L75] Initializing AppSyncClient
+    2019-03-04 07:21:32.135-0800 [V AWSPerformMutationQueue.init(appSyncClient:networkClient:reachabiltyChangeNotifier:cacheFileURL:), L24] Initializing AWSPerformMutationQueue
+    2019-03-04 07:21:32.135-0800 [V AWSPerformMutationQueue.resume(), L95] Resuming OperationQueue
+    ```
+  Please note that `verbose` logging is quite verbose, and there is a significant difference between `verbose` and `debug`. We will be making
+  `debug` more useful as we go. (See [Issue #145](https://github.com/awslabs/aws-mobile-appsync-sdk-ios/issues/145))
+  
+  As always, we recommend turning off logging when deploying to production.
+- Added some verbose logging around mutation queue handling and subscription connections; minor log additions elsewhere
+- Minor dead code removal & miscellaneous cleanup
+
 ## 2.10.2
 
 ### Bug fixes
