@@ -13,15 +13,18 @@ struct MockAWSAppSyncServiceConfigProvider: AWSAppSyncServiceConfigProvider {
     public let region: AWSRegionType
     public let authType: AWSAppSyncAuthType
     public let apiKey: String?
+    public let clientDatabasePrefix: String?
 
     init(endpoint: URL,
          region: AWSRegionType,
          authType: AWSAppSyncAuthType,
-         apiKey: String?) {
+         apiKey: String?,
+         clientDatabasePrefix: String?) {
         self.endpoint = endpoint
         self.region = region
         self.authType = authType
         self.apiKey = apiKey
+        self.clientDatabasePrefix = clientDatabasePrefix
     }
 
     /// Convenience initializer to return a service config for APIKey auth
@@ -30,5 +33,6 @@ struct MockAWSAppSyncServiceConfigProvider: AWSAppSyncServiceConfigProvider {
         self.region = testConfiguration.apiKeyEndpointRegion
         self.authType = .apiKey
         self.apiKey = testConfiguration.apiKey
+        self.clientDatabasePrefix = testConfiguration.clientDatabasePrefix
     }
 }

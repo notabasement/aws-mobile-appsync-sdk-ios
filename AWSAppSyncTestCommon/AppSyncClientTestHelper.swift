@@ -44,9 +44,12 @@ public class AppSyncClientTestHelper: NSObject {
     public enum AuthenticationType {
         case apiKey
         case cognitoIdentityPools
+        case apiKeyWithIAMEndpoint
         case invalidAPIKey
         case invalidOIDC
         case invalidStaticCredentials
+        /// Delay set at 999 seconds
+        case delayedInvalidOIDC
     }
 
     static let testSetupErrorMessage = """
@@ -60,7 +63,9 @@ public class AppSyncClientTestHelper: NSObject {
        "CognitoIdentityPoolRegion": "us-east-1",
        "AppSyncEndpointAPIKey": "https://apikeybasedendpoint.appsync-api.us-east-1.amazonaws.com/graphql",
        "AppSyncEndpointAPIKeyRegion": "us-east-1",
-       "AppSyncAPIKey": "da2-sad3lkh23422"
+       "AppSyncAPIKey": "da2-sad3lkh23422",
+       "BucketName": "appsynctest201804100630-iam-s3bucket-abcdefghijk",
+       "BucketRegion": "us-east-1"
     }
 
     The test uses 2 different backend setups (one for IAM (Cognito Identity) auth, and one for API Key
@@ -157,6 +162,16 @@ public class AppSyncClientTestHelper: NSObject {
                 s3ObjectManager: s3ObjectManager
             )
 
+        case .apiKeyWithIAMEndpoint:
+            let apiKeyAuthProvider = MockAWSAPIKeyAuthProviderForIAMEndpoint(with: testConfiguration)
+            appSyncConfig = try AWSAppSyncClientConfiguration(
+                url: testConfiguration.cognitoPoolEndpointURL,
+                serviceRegion: testConfiguration.cognitoPoolEndpointRegion,
+                apiKeyAuthProvider: apiKeyAuthProvider,
+                cacheConfiguration: cacheConfiguration,
+                s3ObjectManager: s3ObjectManager
+            )
+
         case .cognitoIdentityPools:
             let credentialsProvider = BasicAWSCognitoCredentialsProviderFactory.makeCredentialsProvider(with: testConfiguration)
             appSyncConfig = try AWSAppSyncClientConfiguration(
@@ -186,13 +201,28 @@ public class AppSyncClientTestHelper: NSObject {
                 cacheConfiguration: cacheConfiguration,
                 s3ObjectManager: s3ObjectManager
             )
-
+            
         case .invalidStaticCredentials:
             let credentialsProvider = AWSStaticCredentialsProvider(accessKey: "INVALID_ACCESS_KEY", secretKey: "INVALID_SECRET_KEY")
             appSyncConfig = try AWSAppSyncClientConfiguration(
                 url: testConfiguration.apiKeyEndpointURL,
                 serviceRegion: testConfiguration.apiKeyEndpointRegion,
                 credentialsProvider: credentialsProvider,
+                cacheConfiguration: cacheConfiguration,
+                s3ObjectManager: s3ObjectManager
+            )
+            
+        case .delayedInvalidOIDC:
+            class DelayedCredentials : AWSOIDCAuthProvider {
+                func getLatestAuthToken() -> String {
+                    sleep(999)
+                    return ""
+                }
+            }
+            appSyncConfig = try AWSAppSyncClientConfiguration(
+                url: testConfiguration.apiKeyEndpointURL,
+                serviceRegion: testConfiguration.apiKeyEndpointRegion,
+                oidcAuthProvider: DelayedCredentials(),
                 cacheConfiguration: cacheConfiguration,
                 s3ObjectManager: s3ObjectManager
             )
@@ -207,7 +237,7 @@ public class AppSyncClientTestHelper: NSObject {
 struct BasicAWSCognitoCredentialsProviderFactory {
     static func makeCredentialsProvider(with configuration: AppSyncClientTestConfiguration) -> AWSCognitoCredentialsProvider {
         let credentialsProvider = AWSCognitoCredentialsProvider(
-            regionType: configuration.cognitoPoolEndpointRegion,
+            regionType: configuration.cognitoPoolRegion,
             identityPoolId: configuration.cognitoPoolId
         )
         credentialsProvider.clearCredentials()

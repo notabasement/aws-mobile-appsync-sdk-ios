@@ -25,31 +25,28 @@ import os.log
     func subscriptionAcknowledgementDelegate()
 }
 
-private class SubscriptionsOrderHelper {
-    var count = 0
-    var previousCall = Date()
-    var pendingCount = 0
-    var dispatchLock = DispatchQueue(label: "SubscriptionsQueue")
-    var waitDictionary = [0: true]
-    static let sharedInstance = SubscriptionsOrderHelper()
+internal class SubscriptionsOrderHelper {
+    private static var count = 0
+    static let serialQueue = DispatchQueue(label: "com.amazonaws.appsync.subscriptionsOrderHelper")
     
-    func getLatestCount() -> Int {
-        count += 1
-        waitDictionary[count] = false
-        return count
-    }
+    private init() {}
     
-    func markDone(id: Int) {
-        waitDictionary[id] = true
-    }
-    
-    func shouldWait(id: Int) -> Bool {
-        for i in 0..<id where waitDictionary[i] == false {
-            return true
+    static func getNextUniqueIdentifier() -> Int {
+        return serialQueue.sync {
+            count += 1
+            return count
         }
-        return false
     }
-    
+}
+
+/// Used to determine the reason why a subscription is being cancelled/ disconnected.
+///
+/// - none: Indicates there is no source of cancellation yet.
+/// - user: Indicates that the developer invoked `cancel`
+/// - `error`: Indicates that there was a protocol/ network or service level error.
+/// - `deinit`: Indicates that the watcher was released from memory and the subscription should be disconnected.
+enum CancellationSource {
+    case none, user, `error`, `deinit`
 }
 
 /// A `AWSAppSyncSubscriptionWatcher` is responsible for watching the subscription, and calling the result handler with a new result whenever any of the data is published on the MQTT topic. It also normalizes the cache before giving the callback to customer.
@@ -65,8 +62,10 @@ public final class AWSAppSyncSubscriptionWatcher<Subscription: GraphQLSubscripti
     private let store: ApolloStore
     private var isCancelled: Bool = false
     private var subscriptionTopic: [String]?
+    private var cancellationSource: CancellationSource = .none
+    private var semaphore: DispatchSemaphore = DispatchSemaphore(value: 0)
 
-    public let uniqueIdentifier = SubscriptionsOrderHelper.sharedInstance.getLatestCount()
+    public let uniqueIdentifier = SubscriptionsOrderHelper.getNextUniqueIdentifier()
     private var status = AWSAppSyncSubscriptionWatcherStatus.connecting
 
     init(client: AppSyncMQTTClient,
@@ -104,15 +103,17 @@ public final class AWSAppSyncSubscriptionWatcher<Subscription: GraphQLSubscripti
     }
     
     private func startSubscription() {
-        let semaphore = DispatchSemaphore(value: 0)
-        
         performSubscriptionRequest(completionHandler: { [weak self] (success, error) in
             if let error = error {
                 self?.resultHandler?(nil, nil, error)
             }
-            semaphore.signal()
+            // We release the semaphore here since we know the subscription request round trip to AppSync service
+            // is now completed. The signal will allow the next subscription request to continue executing.
+            self?.semaphore.signal()
         })
-        
+        // We wait for the subscritption request to come back from AppSync service so that we can initiate
+        // the MQTT connection. If the developer calls cancel, the semaphore is released allowing the next
+        // subscription to continue executing.
         semaphore.wait()
     }
 
@@ -183,7 +184,10 @@ public final class AWSAppSyncSubscriptionWatcher<Subscription: GraphQLSubscripti
 
     deinit {
         // call cancel here before exiting
-        cancel()
+        if self.cancellationSource == .none {
+            self.cancellationSource = .deinit
+        }
+        performCleanUpTasksOnCancel()
     }    
     
     /// Cancel any in progress fetching operations and unsubscribe from the messages. After canceling, no updates will
@@ -196,14 +200,32 @@ public final class AWSAppSyncSubscriptionWatcher<Subscription: GraphQLSubscripti
     /// Specifically, this means that cancelling a subscription watcher will not invoke `statusChangeHandler` or
     /// `resultHandler`, although it will set the internal state of the watcher to `.disconnected`
     public func cancel() {
+        if self.cancellationSource == .none {
+            self.cancellationSource = .user
+        }
+        performCleanUpTasksOnCancel()
+    }
+    
+    internal func performCleanUpTasksOnCancel() {
         isCancelled = true
         status = .disconnected
-        client?.cancelSubscription(for: self)
-        client = nil
+        // We signal the semaphore here to ensure that if the subscription request is waiting for HTTP call to return,
+        // we do not block on it. The subscription is already cancelled and we can release the wait for other
+        // subscriptions to resume.
+        semaphore.signal()
         httpClient = nil
         resultHandler = nil
         statusChangeHandler = nil
         subscriptionTopic = nil
+        // Cancel subscription notifies the itnernal AppSyncMQTT client to update it's
+        // metadata and state since this subscription is not active any more.
+        // We currently __do not__ invoke `cancelSubscription` for cases where the disconnect was
+        // due to error in service/ protocol or network level.
+        // We issue it for all other cases.
+        if self.cancellationSource != .error {
+            client?.cancelSubscription(for: self, userOriginatedDisconnect: true)
+        }
+        client = nil
     }
 
     // MARK: - MQTTSubscriptionWatcher
@@ -267,6 +289,12 @@ public final class AWSAppSyncSubscriptionWatcher<Subscription: GraphQLSubscripti
     /// - Parameter status: The new AWSIoTMQTTStatus. This will be resolved to a AWSAppSyncSubscriptionStatus and trigger the notification handler
     func statusChangeDelegate(status: AWSIoTMQTTStatus) {
         let subscriptionWatcherStatus = status.toSubscriptionWatcherStatus
+        switch subscriptionWatcherStatus {
+        case .error:
+            self.cancellationSource = .`error`
+        default:
+            break
+        }
         statusChangeHandler?(subscriptionWatcherStatus)
     }
 
